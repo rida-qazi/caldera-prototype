@@ -1,0 +1,47 @@
+[
+  {
+    "id": "SHP001",
+    "origin": "Mumbai",
+    "destination": "Delhi",
+    "status": "In Transit",
+    "lat": 19.0760,
+    "lng": 72.8777,
+    "eta": "12 Aug, 3:00 PM"
+  },
+  {
+    "id": "SHP002",
+    "origin": "Bengaluru",
+    "destination": "Hyderabad",
+    "status": "Delayed",
+    "lat": 12.9716,
+    "lng": 77.5946,
+    "eta": "13 Aug, 10:30 AM"
+  },
+  {
+    "id": "SHP003",
+    "origin": "Chennai",
+    "destination": "Kolkata",
+    "status": "Delivered",
+    "lat": 13.0827,
+    "lng": 80.2707,
+    "eta": "11 Aug, 4:45 PM"
+  },
+  {
+    "id": "SHP004",
+    "origin": "Ahmedabad",
+    "destination": "Pune",
+    "status": "In Transit",
+    "lat": 23.0225,
+    "lng": 72.5714,
+    "eta": "12 Aug, 9:15 AM"
+  },
+  {
+    "id": "SHP005",
+    "origin": "Jaipur",
+    "destination": "Lucknow",
+    "status": "Delayed",
+    "lat": 26.9124,
+    "lng": 75.7873,
+    "eta": "14 Aug, 6:00 PM"
+  }
+]

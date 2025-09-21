@@ -1,0 +1,42 @@
+[
+  {
+    "id": "P001",
+    "name": "Blue Star Logistics",
+    "status": "Active",
+    "lat": 19.076,
+    "lng": 72.8777,
+    "onTimeRate": 92
+  },
+  {
+    "id": "P002",
+    "name": "Swift Cargo",
+    "status": "Active",
+    "lat": 28.6139,
+    "lng": 77.209,
+    "onTimeRate": 87
+  },
+  {
+    "id": "P003",
+    "name": "Himalaya Freight",
+    "status": "Inactive",
+    "lat": 30.3165,
+    "lng": 78.0322,
+    "onTimeRate": 74
+  },
+  {
+    "id": "P004",
+    "name": "Southern Transport",
+    "status": "Active",
+    "lat": 13.0827,
+    "lng": 80.2707,
+    "onTimeRate": 95
+  },
+  {
+    "id": "P005",
+    "name": "Eastern Haulage",
+    "status": "Inactive",
+    "lat": 22.5726,
+    "lng": 88.3639,
+    "onTimeRate": 68
+  }
+]
