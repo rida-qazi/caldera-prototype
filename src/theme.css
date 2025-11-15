@@ -1,0 +1,10 @@
+/* src/theme.css */
+:root{
+  --caldera-primary: #2E7D32;
+  --caldera-primary-light: #8BC34A;
+  --caldera-bg: #F6F9F6;
+  --caldera-card: #FFFFFF;
+  --caldera-text: #1A1A1A;
+  --caldera-muted: #6E6E6E;
+}
+body { background-color: var(--caldera-bg); color: var(--caldera-text); }

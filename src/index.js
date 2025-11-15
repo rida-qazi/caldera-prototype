@@ -3,6 +3,11 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import './theme.css';
+
+// src/index.js (or src/main.jsx)
+document.documentElement.setAttribute('data-theme', 'caldera');
+
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
