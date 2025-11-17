@@ -22,7 +22,10 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import './index.css';
 import Layout from "./components/Layout";
-
+import { supabase } from "./supabaseClient";
+import DeliveryPieChart from "./components/DeliveryPieChart";
+import DelayLineChart from "./components/DelayLineChart";
+console.log("Line chart component loaded:", DelayLineChart);
 
 
 // =================== Dashboard Page ===================
@@ -32,6 +35,8 @@ function DashboardPage({ alerts }) {
   const [statusFilter, setStatusFilter] = React.useState("All");
   const [searchTerm, setSearchTerm] = React.useState("");
   const [directions, setDirections] = React.useState(null);
+  const [analytics, setAnalytics] = React.useState(null);
+
 
   const { ref: mapRef, inView } = useInView({ triggerOnce: true, threshold: 0.2 });
 
@@ -42,19 +47,172 @@ function DashboardPage({ alerts }) {
   });
 
   // ✅ Load shipments
+
   React.useEffect(() => {
-    fetch("/data/shipments.json")
-      .then((res) => res.json())
-      .then((data) =>
-        setShipments(
-          data.map((s) => ({
-            ...s,
-            predictedDelay: Math.random() < 0.3,
-          }))
-        )
-      )
-      .catch((err) => console.error("Error loading shipments:", err));
+    async function load() {
+      const { data: shipmentRows, error } = await supabase
+        .from("shipments")
+        .select("*");
+
+      if (error) {
+        console.error("Supabase error:", error);
+        return;
+      }
+
+      // --- STATUS MAPPING ---
+      const mapStatus = (s) => {
+        if (s.current_status) return s.current_status;
+        if (s.on_hold) return "On Hold";
+        if (s.movement_type === 2) return "Delivered";
+        if (s.movement_type === 3) return "Delayed";
+        return "In Transit";
+      };
+
+      // --- NORMALIZED SHIPMENTS FOR UI ---
+      const shipmentsWithCoords = shipmentRows.map((s) => ({
+        ...s,
+        id: String(s.id),
+
+        // Real origin
+        origin:
+          s.origin_city
+            ? `${s.origin_city}, ${s.origin_state} (${s.origin_pincode})`
+            : "Unknown",
+
+        // Real destination
+        destination:
+          s.dest_city
+            ? `${s.dest_city}, ${s.dest_state} (${s.dest_pincode})`
+            : "Unknown",
+
+        status: mapStatus(s),
+
+        // Temporary map coordinates (simulation)
+        lat: 20.5 + Math.random(),
+        lng: 78.9 + Math.random(),
+
+        predictedDelay: Math.random() < 0.25
+      }));
+
+      setShipments(shipmentsWithCoords);
+
+      // --- DAILY DELAY CALCULATION ---
+      let daily = {};
+      shipmentRows.forEach((s) => {
+        if (s.actual_delivery && s.eta) {
+          const eta = new Date(s.eta);
+          const actual = new Date(s.actual_delivery);
+
+          const delayHours = (actual - eta) / 3600000;
+          const day = actual.toISOString().split("T")[0];
+
+          if (!daily[day]) daily[day] = { totalDelay: 0, count: 0 };
+
+          daily[day].totalDelay += delayHours;
+          daily[day].count += 1;
+        }
+      });
+
+      const delayTimeline = Object.keys(daily).map((day) => ({
+        date: day,
+        avgDelay: daily[day].totalDelay / daily[day].count
+      }));
+
+      delayTimeline.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      // --- KPI ANALYTICS ---
+      const total = shipmentRows.length;
+
+      const onHold = shipmentsWithCoords.filter(
+        (s) => s.status === "On Hold"
+      ).length;
+
+      const delayed = shipmentsWithCoords.filter(
+        (s) => s.status === "Delayed"
+      ).length;
+
+      const onTime = shipmentRows.filter(
+        (s) =>
+          s.actual_delivery &&
+          s.eta &&
+          new Date(s.actual_delivery) <= new Date(s.eta)
+      ).length;
+
+      const avgDelayHoursArr = shipmentRows
+        .filter((s) => s.actual_delivery && s.eta)
+        .map(
+          (s) => (new Date(s.actual_delivery) - new Date(s.eta)) / 3600000
+        );
+
+      const avgDelayHours =
+        avgDelayHoursArr.length
+          ? avgDelayHoursArr.reduce((a, b) => a + b, 0) /
+            avgDelayHoursArr.length
+          : 0;
+
+      setAnalytics({
+        totalShipments: total,
+        onHold,
+        delayed,
+        onTime,
+        avgDelayHours,
+        delayTimeline
+      });
+    }
+
+    load();
   }, []);
+
+  function getStaticShipments() {
+    return [
+      {
+        id: "SHP001",
+        origin: "Mumbai, India",
+        destination: "Delhi, India",
+        lat: 19.0760,
+        lng: 72.8777,
+        status: "In Transit",
+        predictedDelay: false
+      },
+      {
+        id: "SHP002",
+        origin: "Bengaluru, India",
+        destination: "Hyderabad, India",
+        lat: 12.9716,
+        lng: 77.5946,
+        status: "Delayed",
+        predictedDelay: true
+      },
+      {
+        id: "SHP003",
+        origin: "Chennai, India",
+        destination: "Kolkata, India",
+        lat: 13.0827,
+        lng: 80.2707,
+        status: "Delivered",
+        predictedDelay: false
+      },
+      {
+        id: "SHP004",
+        origin: "Ahmedabad, India",
+        destination: "Pune, India",
+        lat: 23.0225,
+        lng: 72.5714,
+        status: "In Transit",
+        predictedDelay: false
+      },
+      {
+        id: "SHP005",
+        origin: "Jaipur, India",
+        destination: "Lucknow, India",
+        lat: 26.9124,
+        lng: 75.7873,
+        status: "Delayed",
+        predictedDelay: true
+      }
+    ];
+  }
+
 
   const delayedCount = shipments.filter((s) => s.status === "Delayed").length;
   const utilizationRate = shipments.length
@@ -103,7 +261,6 @@ function DashboardPage({ alerts }) {
       <section className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-heading font-semibold text-cal-primary-deep">
-
             Smart, greener deliveries 🌿
           </h1>
           <p className="text-sm text-cal-muted mt-1 max-w-xl">
@@ -113,16 +270,16 @@ function DashboardPage({ alerts }) {
         <div className="glass-card px-4 py-3 text-xs text-cal-muted flex flex-col md:text-right">
           <span className="uppercase tracking-wide">Today&apos;s snapshot</span>
           <span className="text-sm mt-1">
-            {shipments.length ? `${shipments.length} active shipments` : "Loading shipments..."}
+            {shipments.length ? `${analytics ? analytics.totalShipments : "..."} active shipments` : "Loading shipments..."}
           </span>
         </div>
       </section>
 
       {/* KPI cards */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Active Shipments</p>
-          <p className="mt-2 text-2xl font-heading text-cal-text">{shipments.length}</p>
+          <p className="mt-2 text-2xl font-heading text-cal-text">{analytics ? analytics.totalShipments : "..."}</p>
           <p className="text-[11px] text-cal-muted mt-1">
             Across all monitored routes.
           </p>
@@ -130,7 +287,7 @@ function DashboardPage({ alerts }) {
 
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Delayed Deliveries</p>
-          <p className="mt-2 text-2xl font-heading text-red-600">{delayedCount}</p>
+          <p className="mt-2 text-2xl font-heading text-red-600">{analytics ? analytics.delayed : "..."}</p>
           <p className="text-[11px] text-cal-muted mt-1">
             Shipments currently marked as delayed.
           </p>
@@ -139,7 +296,7 @@ function DashboardPage({ alerts }) {
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Utilization Rate</p>
           <p className="mt-2 text-2xl font-heading text-cal-primary-deep">
-            {utilizationRate}%
+            {analytics ? Math.round((analytics.onTime / analytics.totalShipments) * 100) : "..."}%
           </p>
           <p className="text-[11px] text-cal-muted mt-1">
             Higher is better — fewer disruptions.
@@ -155,7 +312,31 @@ function DashboardPage({ alerts }) {
             Shipments flagged with potential future delays.
           </p>
         </div>
+        <div className="glass-card p-4">
+          <p className="text-xs text-cal-muted uppercase tracking-wide">Avg Delay</p>
+          <p className="mt-2 text-2xl font-heading text-cal-primary-deep">
+            {analytics ? analytics.avgDelayHours.toFixed(1) : "..."} hrs
+          </p>
+          <p className="text-[11px] text-cal-muted mt-1">
+            Across all shipments with valid timestamps.
+          </p>
+        </div>
       </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Pie Chart */}
+        {analytics && (
+          <div className="h-full">
+            <DeliveryPieChart analytics={analytics} />
+          </div>
+        )}
+        {/* Line Chart */}
+        {analytics?.delayTimeline && (
+          <div className="h-full">
+            <DelayLineChart data={analytics.delayTimeline} />
+          </div>
+        )}
+      </section>     
 
       {/* Filters row */}
       <section className="glass-card p-4">
@@ -167,6 +348,7 @@ function DashboardPage({ alerts }) {
         />
       </section>
 
+      
       {/* Alerts + Map */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Alerts panel */}
@@ -304,6 +486,8 @@ function DashboardPage({ alerts }) {
           </div>
         </div>
       </section>
+
+
     </div>
   );
 
@@ -315,6 +499,7 @@ function ShipmentsPage() {
   const [shipments, setShipments] = React.useState([]);
   const [statusFilter, setStatusFilter] = React.useState("All");
   const [searchTerm, setSearchTerm] = React.useState("");
+  
 
   const [sortBy, setSortBy] = React.useState("id"); // "id" | "origin" | "destination" | "status" | "risk"
   const [sortDirection, setSortDirection] = React.useState("asc"); // "asc" | "desc"
@@ -332,23 +517,152 @@ function ShipmentsPage() {
   });
 
   // ============= Load shipments =============
-  React.useEffect(() => {
-    fetch("/data/shipments.json")
-      .then((res) => res.json())
-      .then((data) =>
-        setShipments(
-          data.map((s) => ({
-            ...s,
-            predictedDelay: Math.random() < 0.3, // mock prediction flag
-          }))
-        )
-      )
-      .catch((err) => console.error("Error loading shipments:", err));
-  }, []);
+  
+  async function loadShipments() {
+    try {
+      let query = supabase
+        .from("shipments")
+        .select("*")
+        .order("entry_date", { ascending: false });
+
+      // ---- SEARCH FILTER ----
+      if (searchTerm.trim().length > 0) {
+        const t = searchTerm.trim();
+        query = query.or(
+          `order_number.ilike.%${t}%,order_id::text.ilike.%${t}%,product_name.ilike.%${t}%`
+        );
+      }
+
+      // ---- STATUS FILTER ----
+      if (statusFilter !== "All") {
+        if (statusFilter === "On Hold") {
+          query = query.eq("on_hold", true);
+        } else {
+          query = query.eq("current_status", statusFilter);
+        }
+      }
+
+      const { data, error } = await query;
+      console.log("🚚 RAW SHIPMENTS FROM SUPABASE:", data?.[0]);
+
+      if (error) {
+        console.error("Supabase error:", error);
+        return;
+      }
+
+      // ---- NORMALIZE SHIPMENTS ----
+      const rows = data.map((s) => {
+        // Fix status
+        const status =
+          s.current_status ||
+          (s.on_hold
+            ? "On Hold"
+            : s.movement_type === "2"
+            ? "Delivered"
+            : s.movement_type === "3"
+            ? "Delayed"
+            : "In Transit");
+
+        // Origin fallback logic
+        const origin =
+          s.origin_city && s.origin_state
+            ? `${s.origin_city}, ${s.origin_state}`
+            : s.origin_pincode
+            ? `Pincode ${s.origin_pincode}`
+            : "Unknown";
+
+        // Destination fallback logic
+        const destination =
+          s.dest_city && s.dest_state
+            ? `${s.dest_city}, ${s.dest_state}`
+            : s.dest_pincode
+            ? `Pincode ${s.dest_pincode}`
+            : "Unknown";
+
+        // Smarter Predicted Delay Logic
+        let predictedDelay = false;
+
+        // Case 1: Shipment is already DELAYED → 50% chance predicted
+        if (status === "Delayed") {
+          predictedDelay = Math.random() < 0.5;
+        }
+
+        // Case 2: Shipment is ON TIME → small 5% chance predicted
+        else if (status === "On Time") {
+          predictedDelay = Math.random() < 0.05;
+        }
+
+        // Case 3: Shipment is IN TRANSIT → medium 20% chance predicted
+        else if (status === "In Transit") {
+          predictedDelay = Math.random() < 0.2;
+        }
+
+        // 📦 RISK SCORE LOGIC
+        let baseRisk = 30; // everyone starts with 30
+
+        // Actual Status impact
+        if (status === "Delayed") baseRisk += 40;       // high impact
+        else if (status === "In Transit") baseRisk += 15;
+        else if (status === "On Time") baseRisk -= 10;
+
+        // Predicted Delay impact
+        if (predictedDelay) baseRisk += 20;
+
+        // SLA Tightness
+        if (s.actual_delivery && s.eta) {
+          const diff = new Date(s.actual_delivery) - new Date(s.eta);
+          if (diff > 0) baseRisk += 25;   // delivered late
+          else baseRisk += 0;             // on-time deliveries unaffected
+        }
+
+        // Add soft randomness (±5)
+        baseRisk += Math.floor(Math.random() * 10 - 5);
+
+        // Clamp between 5 and 100
+        const riskScore = Math.min(100, Math.max(5, baseRisk));
+
+
+
+        return {
+          ...s,
+          id: String(s.id),
+
+          origin,
+          destination,
+          status,
+
+          // Temporary coords until GPS tracking is added
+          lat: 20.5 + Math.random(),
+          lng: 78.9 + Math.random(),
+
+          predictedDelay,
+          riskScore,
+
+          delayHours:
+            s.actual_delivery && s.eta
+              ? (new Date(s.actual_delivery) - new Date(s.eta)) / 3600000
+              : null,
+        };
+      });
+
+      setShipments(rows);
+    } catch (err) {
+      console.error("Load shipments failed:", err);
+    }
+  }
+
+
+
+
+ 
+  
+
+
 
   // Reset page when filters change
+
   React.useEffect(() => {
-    setPage(1);
+    loadShipments();
   }, [statusFilter, searchTerm]);
 
   // ============= Risk score helper (AI-ish 😎) =============
@@ -1294,12 +1608,11 @@ function RoutesPage() {
   );
 }
 
-
-
 // =================== Alerts Page ===================
 
-function AlertsPage({ alerts }) {
+function AlertsPage() {
   // ---------- Helpers ----------
+  const [alerts, setAlerts] = React.useState([]);
   const getSeverity = (type) => {
     if (type.toLowerCase().includes("predicted")) return "medium";
     if (type.toLowerCase().includes("delay")) return "high";
@@ -1336,6 +1649,36 @@ function AlertsPage({ alerts }) {
   };
 
   // ---------- Root Cause Logic ----------
+
+  React.useEffect(() => {
+
+    // 🔄 Shuffle helper
+    function shuffle(array) {
+      return array
+        .map((item) => ({ item, sort: Math.random() }))
+        .sort((a, b) => a.sort - b.sort)
+        .map(({ item }) => item);
+    }
+
+    async function loadAlerts() {
+      const { data, error } = await supabase
+        .from("alerts")
+        .select("*")
+        .order("timestamp", { ascending: false });
+
+      if (error) {
+        console.error("Error loading alerts:", error);
+      } else {
+        setAlerts(shuffle(data));  // 👈 MIXED ORDER
+      }
+    }
+
+    loadAlerts();
+  }, []);
+
+
+
+
   const getRootCause = (alert) => {
     const msg = alert.message.toLowerCase();
     const type = alert.type.toLowerCase();
