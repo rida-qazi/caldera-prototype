@@ -10,6 +10,7 @@ import React, { useState } from "react";
 import {
   GoogleMap,
   Marker,
+  Polyline,
   InfoWindow,
   DirectionsRenderer,
   useJsApiLoader,
@@ -25,26 +26,141 @@ import Layout from "./components/Layout";
 import { supabase } from "./supabaseClient";
 import DeliveryPieChart from "./components/DeliveryPieChart";
 import DelayLineChart from "./components/DelayLineChart";
+import { useGoogleMaps } from "./components/GoogleMapsLoader";
 console.log("Line chart component loaded:", DelayLineChart);
 
 
 // =================== Dashboard Page ===================
 function DashboardPage({ alerts }) {
-  const [shipments, setShipments] = React.useState([]);
-  const [selectedShipment, setSelectedShipment] = React.useState(null);
-  const [statusFilter, setStatusFilter] = React.useState("All");
-  const [searchTerm, setSearchTerm] = React.useState("");
-  const [directions, setDirections] = React.useState(null);
+
+  const [shipments, setShipments] = React.useState([]);  
   const [analytics, setAnalytics] = React.useState(null);
 
 
-  const { ref: mapRef, inView } = useInView({ triggerOnce: true, threshold: 0.2 });
+  
+  const { ref: mapInViewRef, inView } = useInView({ triggerOnce: true, threshold: 0.2 });
 
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY || "",
-    libraries: ["places"],
+
+  const [vehicles, setVehicles] = React.useState([]);
+  const [vehicleRoutes, setVehicleRoutes] = React.useState({});
+  const [selectedShipment, setSelectedShipment] = React.useState(null);
+  const [directions, setDirections] = React.useState(null);
+
+  const [statusFilter, setStatusFilter] = React.useState("All");
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [showTraffic, setShowTraffic] = React.useState(false);
+
+  const mapRef = React.useRef(null);
+  const { isLoaded, loadError } = useGoogleMaps();
+
+  const VEHICLE_METADATA = {
+    Qazi: { origin: "JP Nagar", destination: "Bannerghatta" },
+    XUV500: { origin: "Jayanagar", destination: "JP Nagar" },
+    2007: { origin: "Jayanagar", destination: "Banaswadi" },
+    eggomlette: { origin: "KR Puram", destination: "Bannerghatta" },
+    Ultron: { origin: "Chamrajpet", destination: "Ejipura" },
+    hi: { origin: "Ejipura", destination: "HSR Layout" },
+    "Badmosh billa": { origin: "Tilak Nagar", destination: "Anepalya" },
+  };
+
+  React.useEffect(() => {
+    async function loadStatic() {
+      try {
+        const res = await fetch("/data/vehicle_positions.json");
+        const raw = await res.json();
+
+        const grouped = {};
+
+        raw.forEach((r) => {
+          if (!grouped[r.vehicle_id]) grouped[r.vehicle_id] = [];
+          grouped[r.vehicle_id].push({
+            vehicle_id: r.vehicle_id,
+            latitude: Number(r.latitude),
+            longitude: Number(r.longitude),
+            speed_kmh: Number(r.speed_kmh),
+            timestamp: r.timestamp,
+          });
+        });
+
+        // sort paths
+        Object.values(grouped).forEach((arr) =>
+          arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+        );
+
+        setVehicleRoutes(grouped);
+
+        const snapshots = Object.entries(grouped).map(([vehicle_id, points]) => {
+          const last = points[points.length - 1];
+          const meta = VEHICLE_METADATA[vehicle_id] || {
+            origin: "Unknown",
+            destination: "Unknown",
+          };
+
+          const departedAt = new Date(
+            new Date(last.timestamp).getTime() - 4 * 3600000
+          ).toISOString();
+          const hubTime = new Date(
+            new Date(last.timestamp).getTime() - 2 * 3600000
+          ).toISOString();
+          const eta = new Date(
+            new Date(last.timestamp).getTime() + 2 * 3600000
+          ).toISOString();
+
+          return {
+            id: vehicle_id,
+            origin: meta.origin,
+            destination: meta.destination,
+            departedAt,
+            hubTime,
+            eta,
+            status:
+              ["In Transit", "Delayed", "Delivered"][
+                Math.floor(Math.random() * 3)
+              ],
+            lat: last.latitude,
+            lng: last.longitude,
+            fullPath: points,
+          };
+        });
+
+        snapshots.sort((a, b) => a.id.localeCompare(b.id));
+        setVehicles(snapshots);
+      } catch (err) {
+        console.error("Dashboard load error:", err);
+      }
+    }
+
+    loadStatic();
+  }, []);
+
+
+  const handleShipmentSelect = (shipment) => {
+    setSelectedShipment(shipment);
+    setDirections(null);
+
+    if (mapRef.current) {
+      mapRef.current.panTo({ lat: shipment.lat, lng: shipment.lng });
+      mapRef.current.setZoom(12);
+    }
+  };
+
+  const filteredShipments = vehicles.filter((s) => {
+    const matchesStatus =
+      statusFilter === "All" ? true : s.status === statusFilter;
+
+    const q = searchTerm.trim().toLowerCase();
+
+    const matchesSearch =
+      q === "" ||
+      s.id.toLowerCase().includes(q) ||
+      s.origin.toLowerCase().includes(q) ||
+      s.destination.toLowerCase().includes(q);
+
+    return matchesStatus && matchesSearch;
   });
+
+
+
 
   // ✅ Load shipments
 
@@ -163,55 +279,7 @@ function DashboardPage({ alerts }) {
     load();
   }, []);
 
-  function getStaticShipments() {
-    return [
-      {
-        id: "SHP001",
-        origin: "Mumbai, India",
-        destination: "Delhi, India",
-        lat: 19.0760,
-        lng: 72.8777,
-        status: "In Transit",
-        predictedDelay: false
-      },
-      {
-        id: "SHP002",
-        origin: "Bengaluru, India",
-        destination: "Hyderabad, India",
-        lat: 12.9716,
-        lng: 77.5946,
-        status: "Delayed",
-        predictedDelay: true
-      },
-      {
-        id: "SHP003",
-        origin: "Chennai, India",
-        destination: "Kolkata, India",
-        lat: 13.0827,
-        lng: 80.2707,
-        status: "Delivered",
-        predictedDelay: false
-      },
-      {
-        id: "SHP004",
-        origin: "Ahmedabad, India",
-        destination: "Pune, India",
-        lat: 23.0225,
-        lng: 72.5714,
-        status: "In Transit",
-        predictedDelay: false
-      },
-      {
-        id: "SHP005",
-        origin: "Jaipur, India",
-        destination: "Lucknow, India",
-        lat: 26.9124,
-        lng: 75.7873,
-        status: "Delayed",
-        predictedDelay: true
-      }
-    ];
-  }
+  
 
 
   const delayedCount = shipments.filter((s) => s.status === "Delayed").length;
@@ -230,29 +298,12 @@ function DashboardPage({ alerts }) {
     return "http://maps.google.com/mapfiles/ms/icons/blue-dot.png";
   };
 
-  const filteredShipments = filterShipments(shipments, statusFilter, searchTerm);
+
 
   // ✅ Select shipment + draw route
-  const handleShipmentSelect = (shipment) => {
-    setSelectedShipment(shipment);
-    if (window.google) {
-      const directionsService = new window.google.maps.DirectionsService();
-      directionsService.route(
-        {
-          origin: shipment.origin,
-          destination: shipment.destination,
-          travelMode: window.google.maps.TravelMode.DRIVING,
-        },
-        (result, status) => {
-          if (status === "OK" && result) {
-            setDirections(result);
-          } else {
-            console.error("Directions request failed:", status);
-          }
-        }
-      );
-    }
-  };
+  
+  console.log("Dashboard inView:", inView, "isLoaded:", isLoaded, "loadError:", loadError);
+
 
   return (
     <div className="space-y-6">
@@ -397,10 +448,8 @@ function DashboardPage({ alerts }) {
         </div>
 
         {/* Map panel */}
-        <div
-          ref={mapRef}
-          className="lg:col-span-2 glass-card shadow-sm overflow-hidden min-h-[320px] flex flex-col"
-        >
+
+        <div className="lg:col-span-2 glass-card shadow-sm overflow-hidden min-h-[320px] flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-cal-border/60">
             <div>
               <h3 className="text-sm font-heading text-cal-text">Live Shipment Map</h3>
@@ -409,8 +458,7 @@ function DashboardPage({ alerts }) {
               </p>
             </div>
           </div>
-
-          <div className="flex-1">
+          <div ref={mapInViewRef} className="flex-1">
             {!inView && (
               <div className="p-6 text-cal-muted text-center text-sm">
                 📍 Map will load when visible...
@@ -427,51 +475,112 @@ function DashboardPage({ alerts }) {
               </div>
             )}
             {inView && isLoaded && (
+
+
+
               <GoogleMap
                 mapContainerStyle={{ width: "100%", height: "320px" }}
                 center={
                   selectedShipment
                     ? { lat: selectedShipment.lat, lng: selectedShipment.lng }
-                    : { lat: 20.5937, lng: 78.9629 }
+                    : { lat: 12.9716, lng: 77.5946 } // Bengaluru default
                 }
-                zoom={selectedShipment ? 6 : 5}
+                zoom={selectedShipment ? 12 : 10}
+                onLoad={(map) => (mapRef.current = map)}
               >
-                {filteredShipments.map((s) => (
+
+
+                {/* ⭐ SPEED-COLORED POLYLINE FOR SELECTED VEHICLE ONLY */}
+                {selectedShipment &&
+                  vehicleRoutes[selectedShipment.id] &&
+                  vehicleRoutes[selectedShipment.id].length > 1 &&
+                  vehicleRoutes[selectedShipment.id].map((point, i) => {
+                    if (i === 0) return null;
+
+                    const prev = vehicleRoutes[selectedShipment.id][i - 1];
+
+                    // Speed → Color logic
+                    const speed = point.speed_kmh || 0;
+                    let color = "#2ecc71"; // green
+                    if (speed < 20) color = "#f1c40f"; // yellow
+                    if (speed < 10) color = "#e74c3c"; // red
+
+                    return (
+                      <Polyline
+                        key={`dash-seg-${selectedShipment.id}-${i}`}
+                        path={[
+                          { lat: prev.latitude, lng: prev.longitude },
+                          { lat: point.latitude, lng: point.longitude },
+                        ]}
+                        options={{
+                          strokeColor: color,
+                          strokeOpacity: 0.9,
+                          strokeWeight: 5,
+                        }}
+                      />
+                    );
+                  })}
+
+                {/* ⭐ LATEST POSITION MARKERS FOR ALL VEHICLES */}
+                {vehicles.map((v) => (
                   <Marker
-                    key={s.id}
-                    position={{ lat: s.lat, lng: s.lng }}
-                    icon={getMarkerIcon(s.status)}
-                    title={`${s.id} - ${s.status}`}
-                    onClick={() => handleShipmentSelect(s)}
+                    key={"dash-" + v.id}
+                    position={{ lat: v.lat, lng: v.lng }}
+                    icon={
+                      window.google
+                        ? {
+                            url:
+                              v.status === "Delayed"
+                                ? "http://maps.google.com/mapfiles/ms/icons/red-dot.png"
+                                : v.status === "Delivered"
+                                ? "http://maps.google.com/mapfiles/ms/icons/green-dot.png"
+                                : "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+                            scaledSize: new window.google.maps.Size(
+                              selectedShipment?.id === v.id ? 38 : 28,
+                              selectedShipment?.id === v.id ? 38 : 28
+                            ),
+                          }
+                        : undefined
+                    }
+                    onClick={() => {
+                      handleShipmentSelect(v);
+
+                      // ⭐ PAN TO VEHICLE (do NOT recenter on unselect)
+                      if (mapRef.current) {
+                        mapRef.current.panTo({ lat: v.lat, lng: v.lng });
+                        mapRef.current.setZoom(12);
+                      }
+                    }}
                   />
                 ))}
 
+                {/* ⭐ INFO WINDOW */}
                 {selectedShipment && (
                   <InfoWindow
                     position={{ lat: selectedShipment.lat, lng: selectedShipment.lng }}
                     onCloseClick={() => {
                       setSelectedShipment(null);
                       setDirections(null);
+                      // ⭐ DO NOT reset map when closing
                     }}
                   >
                     <div style={{ fontSize: "12px" }}>
-                      <strong>Shipment {selectedShipment.id}</strong>
-                      <br />
-                      Status: {selectedShipment.status}
+                      <strong>{selectedShipment.id}</strong>
                       <br />
                       {selectedShipment.origin} → {selectedShipment.destination}
+                      <br />
+                      Status: {selectedShipment.status}
                       {selectedShipment.predictedDelay && (
                         <>
                           <br />
-                          <span className="text-amber-700 font-medium">
-                            ⚠ Predicted Delay
-                          </span>
+                          <span className="text-amber-600">⚠ Predicted Delay</span>
                         </>
                       )}
                     </div>
                   </InfoWindow>
                 )}
 
+                {/* ⭐ OPTIONAL: Google Directions (kept same) */}
                 {directions && (
                   <DirectionsRenderer
                     directions={directions}
@@ -481,7 +590,12 @@ function DashboardPage({ alerts }) {
                     }}
                   />
                 )}
+
+                {showTraffic && <TrafficLayer />}
               </GoogleMap>
+
+
+              
             )}
           </div>
         </div>
@@ -492,6 +606,7 @@ function DashboardPage({ alerts }) {
   );
 
 }
+
 
 
 // =================== Shipments Page ===================
@@ -510,11 +625,11 @@ function ShipmentsPage() {
   const [selectedShipment, setSelectedShipment] = React.useState(null);
 
   // For mini map in modal
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY || "",
-    libraries: ["places"],
-  });
+ 
+  
+
+  const { isLoaded, loadError } = useGoogleMaps();
+
 
   // ============= Load shipments =============
   
@@ -1608,6 +1723,8 @@ function RoutesPage() {
   );
 }
 
+
+
 // =================== Alerts Page ===================
 
 function AlertsPage() {
@@ -1930,11 +2047,11 @@ function PartnersPage() {
   });
 
   // Google Maps Loader
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY || "",
-    libraries: ["places"],
-  });
+ 
+ 
+
+  const { isLoaded, loadError } = useGoogleMaps();
+
 
   // =============================
   // Actions
