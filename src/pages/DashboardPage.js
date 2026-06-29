@@ -587,7 +587,7 @@ const delayTimeline = [
                   />
                 )}
 
-                {showTraffic && <TrafficLayer />}
+             
               </GoogleMap>
 
 
