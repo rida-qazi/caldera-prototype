@@ -16,7 +16,7 @@ export default function DelayLineChart({ data }) {
   return (
     <div className="glass-card p-4 h-full">
       <h3 className="text-sm font-heading text-cal-text mb-3">
-        Delay Trend Over Time
+        Average Delivery Delay
       </h3>
 
       <div style={{ width: "100%", height: 300 }}>

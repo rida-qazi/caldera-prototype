@@ -262,7 +262,41 @@ function DashboardPage({ alerts }) {
     load();
   }, []);
 
-  
+  const pieData = {
+  onTime: 18,
+  delayed: 3,
+};
+
+const delayTimeline = [
+  {
+    date: "Mon",
+    avgDelay: 1.2,
+  },
+  {
+    date: "Tue",
+    avgDelay: 2.0,
+  },
+  {
+    date: "Wed",
+    avgDelay: 0.8,
+  },
+  {
+    date: "Thu",
+    avgDelay: 2.6,
+  },
+  {
+    date: "Fri",
+    avgDelay: 1.5,
+  },
+  {
+    date: "Sat",
+    avgDelay: 0.7,
+  },
+  {
+    date: "Sun",
+    avgDelay: 0.4,
+  },
+];
 
 
   const delayedCount = shipments.filter((s) => s.status === "Delayed").length;
@@ -295,10 +329,10 @@ function DashboardPage({ alerts }) {
       <section className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-heading font-semibold text-cal-primary-deep">
-            Smart, greener deliveries 🌿
+            Smarter Logistics Starts Here 🌿
           </h1>
           <p className="text-sm text-cal-muted mt-1 max-w-xl">
-            Monitor shipments, predict delays, and reduce emissions with Caldera’s intelligent logistics dashboard.
+            Monitor shipments, optimize fleet utilization, assign orders intelligently, and collaborate with trusted logistics partners—all from one platform.
           </p>
         </div>
         <div className="glass-card px-4 py-3 text-xs text-cal-muted flex flex-col md:text-right">
@@ -313,7 +347,7 @@ function DashboardPage({ alerts }) {
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Active Shipments</p>
-          <p className="mt-2 text-2xl font-heading text-cal-text">{analytics ? analytics.totalShipments : "..."}</p>
+          <p className="mt-2 text-2xl font-heading text-cal-text">21</p>
           <p className="text-[11px] text-cal-muted mt-1">
             Across all monitored routes.
           </p>
@@ -321,7 +355,7 @@ function DashboardPage({ alerts }) {
 
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Delayed Deliveries</p>
-          <p className="mt-2 text-2xl font-heading text-red-600">{analytics ? analytics.delayed : "..."}</p>
+          <p className="mt-2 text-2xl font-heading text-red-600">3</p>
           <p className="text-[11px] text-cal-muted mt-1">
             Shipments currently marked as delayed.
           </p>
@@ -330,7 +364,7 @@ function DashboardPage({ alerts }) {
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Utilization Rate</p>
           <p className="mt-2 text-2xl font-heading text-cal-primary-deep">
-            {analytics ? Math.round((analytics.onTime / analytics.totalShipments) * 100) : "..."}%
+            83%
           </p>
           <p className="text-[11px] text-cal-muted mt-1">
             Higher is better — fewer disruptions.
@@ -340,7 +374,7 @@ function DashboardPage({ alerts }) {
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Predicted Risk</p>
           <p className="mt-2 text-2xl font-heading text-amber-600">
-            {shipments.filter(s => s.predictedDelay).length}
+            2
           </p>
           <p className="text-[11px] text-cal-muted mt-1">
             Shipments flagged with potential future delays.
@@ -349,7 +383,7 @@ function DashboardPage({ alerts }) {
         <div className="glass-card p-4">
           <p className="text-xs text-cal-muted uppercase tracking-wide">Avg Delay</p>
           <p className="mt-2 text-2xl font-heading text-cal-primary-deep">
-            {analytics ? analytics.avgDelayHours.toFixed(1) : "..."} hrs
+            1.8 hrs
           </p>
           <p className="text-[11px] text-cal-muted mt-1">
             Across all shipments with valid timestamps.
@@ -357,20 +391,20 @@ function DashboardPage({ alerts }) {
         </div>
       </section>
 
+    
+
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Pie Chart */}
-        {analytics && (
-          <div className="h-full">
-            <DeliveryPieChart analytics={analytics} />
-          </div>
-        )}
-        {/* Line Chart */}
-        {analytics?.delayTimeline && (
-          <div className="h-full">
-            <DelayLineChart data={analytics.delayTimeline} />
-          </div>
-        )}
-      </section>     
+
+        <div className="h-full">
+          <DeliveryPieChart analytics={pieData} />
+        </div>
+
+        <div className="h-full">
+          <DelayLineChart data={delayTimeline} />
+        </div>
+
+      </section>
+
 
       {/* Filters row */}
       <section className="glass-card p-4">

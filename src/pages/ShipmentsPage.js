@@ -1,606 +1,671 @@
-import React from "react";
-import { GoogleMap, Marker } from "@react-google-maps/api";
-import ShipmentFilters, { filterShipments } from "../components/ShipmentFilters";
-import { supabase } from "../supabaseClient";
+import React, { useMemo, useState, useEffect } from "react";
+import { GoogleMap, Marker, DirectionsRenderer, } from "@react-google-maps/api";
+import ShipmentFilters, {
+  filterShipments,
+} from "../components/ShipmentFilters";
 import { useGoogleMaps } from "../components/GoogleMapsLoader";
 
+/* =========================================================
+   MOCK DATABASE
+========================================================= */
+
+const shipments = [
+  {
+    id: "SHP-24018",
+    vehicle: "KA01AB1234",
+    origin: "Bengaluru",
+    destination: "Mysuru",
+    status: "In Transit",
+    eta: "4:35 PM",
+    speed: "54 km/h",
+    risk: "Low",
+    predictedDelay: false,
+
+    lat: 12.9716,
+    lng: 77.5946,
+
+    route: [
+      { lat: 12.9716, lng: 77.5946 },
+      { lat: 12.684, lng: 77.19 },
+      { lat: 12.2958, lng: 76.6394 },
+    ],
+  },
+
+  {
+    id: "SHP-24021",
+    vehicle: "KA05CD5678",
+    origin: "Hubballi",
+    destination: "Belagavi",
+    status: "Delayed",
+    eta: "7:10 PM",
+    speed: "39 km/h",
+    risk: "High",
+    predictedDelay: true,
+
+    lat: 15.3647,
+    lng: 75.124,
+
+    route: [
+      { lat: 15.3647, lng: 75.124 },
+      { lat: 15.67, lng: 74.87 },
+      { lat: 15.8497, lng: 74.4977 },
+    ],
+  },
+
+  {
+    id: "SHP-24025",
+    vehicle: "KA03EF9012",
+    origin: "Chennai",
+    destination: "Bengaluru",
+    status: "In Transit",
+    eta: "6:05 PM",
+    speed: "61 km/h",
+    risk: "Medium",
+    predictedDelay: false,
+
+    lat: 13.0827,
+    lng: 80.2707,
+
+    route: [
+      { lat: 13.0827, lng: 80.2707 },
+      { lat: 12.7, lng: 79.8 },
+      { lat: 12.9716, lng: 77.5946 },
+    ],
+  },
+
+  {
+    id: "SHP-24030",
+    vehicle: "TN09GH3456",
+    origin: "Hyderabad",
+    destination: "Vijayawada",
+    status: "Delivered",
+    eta: "--",
+    speed: "--",
+    risk: "Low",
+    predictedDelay: false,
+
+    lat: 17.385,
+    lng: 78.4867,
+
+    route: [
+      { lat: 17.385, lng: 78.4867 },
+      { lat: 16.8, lng: 79.7 },
+      { lat: 16.5062, lng: 80.648 },
+    ],
+  },
+];
+
+/* ========================================================= */
+
 function ShipmentsPage() {
-  const [shipments, setShipments] = React.useState([]);
-  const [statusFilter, setStatusFilter] = React.useState("All");
-  const [searchTerm, setSearchTerm] = React.useState("");
-  
+  const { isLoaded } = useGoogleMaps();
 
-  const [sortBy, setSortBy] = React.useState("id"); // "id" | "origin" | "destination" | "status" | "risk"
-  const [sortDirection, setSortDirection] = React.useState("asc"); // "asc" | "desc"
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const [page, setPage] = React.useState(1);
-  const PAGE_SIZE = 5;
+  const [selectedShipment, setSelectedShipment] = useState(null);
+  const [directions, setDirections] = useState(null);
 
-  const [selectedShipment, setSelectedShipment] = React.useState(null);
+  useEffect(() => {
 
-  // For mini map in modal
- 
-  
-
-  const { isLoaded, loadError } = useGoogleMaps();
-
-
-  // ============= Load shipments =============
-  
-  async function loadShipments() {
-    try {
-      let query = supabase
-        .from("shipments")
-        .select("*")
-        .order("entry_date", { ascending: false });
-
-      // ---- SEARCH FILTER ----
-      if (searchTerm.trim().length > 0) {
-        const t = searchTerm.trim();
-        query = query.or(
-          `order_number.ilike.%${t}%,order_id::text.ilike.%${t}%,product_name.ilike.%${t}%`
-        );
-      }
-
-      // ---- STATUS FILTER ----
-      if (statusFilter !== "All") {
-        if (statusFilter === "On Hold") {
-          query = query.eq("on_hold", true);
-        } else {
-          query = query.eq("current_status", statusFilter);
-        }
-      }
-
-      const { data, error } = await query;
-      console.log("🚚 RAW SHIPMENTS FROM SUPABASE:", data?.[0]);
-
-      if (error) {
-        console.error("Supabase error:", error);
-        return;
-      }
-
-      // ---- NORMALIZE SHIPMENTS ----
-      const rows = data.map((s) => {
-        // Fix status
-        const status =
-          s.current_status ||
-          (s.on_hold
-            ? "On Hold"
-            : s.movement_type === "2"
-            ? "Delivered"
-            : s.movement_type === "3"
-            ? "Delayed"
-            : "In Transit");
-
-        // Origin fallback logic
-        const origin =
-          s.origin_city && s.origin_state
-            ? `${s.origin_city}, ${s.origin_state}`
-            : s.origin_pincode
-            ? `Pincode ${s.origin_pincode}`
-            : "Unknown";
-
-        // Destination fallback logic
-        const destination =
-          s.dest_city && s.dest_state
-            ? `${s.dest_city}, ${s.dest_state}`
-            : s.dest_pincode
-            ? `Pincode ${s.dest_pincode}`
-            : "Unknown";
-
-        // Smarter Predicted Delay Logic
-        let predictedDelay = false;
-
-        // Case 1: Shipment is already DELAYED → 50% chance predicted
-        if (status === "Delayed") {
-          predictedDelay = Math.random() < 0.5;
-        }
-
-        // Case 2: Shipment is ON TIME → small 5% chance predicted
-        else if (status === "On Time") {
-          predictedDelay = Math.random() < 0.05;
-        }
-
-        // Case 3: Shipment is IN TRANSIT → medium 20% chance predicted
-        else if (status === "In Transit") {
-          predictedDelay = Math.random() < 0.2;
-        }
-
-        // 📦 RISK SCORE LOGIC
-        let baseRisk = 30; // everyone starts with 30
-
-        // Actual Status impact
-        if (status === "Delayed") baseRisk += 40;       // high impact
-        else if (status === "In Transit") baseRisk += 15;
-        else if (status === "On Time") baseRisk -= 10;
-
-        // Predicted Delay impact
-        if (predictedDelay) baseRisk += 20;
-
-        // SLA Tightness
-        if (s.actual_delivery && s.eta) {
-          const diff = new Date(s.actual_delivery) - new Date(s.eta);
-          if (diff > 0) baseRisk += 25;   // delivered late
-          else baseRisk += 0;             // on-time deliveries unaffected
-        }
-
-        // Add soft randomness (±5)
-        baseRisk += Math.floor(Math.random() * 10 - 5);
-
-        // Clamp between 5 and 100
-        const riskScore = Math.min(100, Math.max(5, baseRisk));
-
-
-
-        return {
-          ...s,
-          id: String(s.id),
-
-          origin,
-          destination,
-          status,
-
-          // Temporary coords until GPS tracking is added
-          lat: 20.5 + Math.random(),
-          lng: 78.9 + Math.random(),
-
-          predictedDelay,
-          riskScore,
-
-          delayHours:
-            s.actual_delivery && s.eta
-              ? (new Date(s.actual_delivery) - new Date(s.eta)) / 3600000
-              : null,
-        };
-      });
-
-      setShipments(rows);
-    } catch (err) {
-      console.error("Load shipments failed:", err);
+    if (!selectedShipment || !window.google) {
+      setDirections(null);
+      return;
     }
-  }
 
+    const directionsService =
+      new window.google.maps.DirectionsService();
 
+    directionsService.route(
+      {
 
+        origin: selectedShipment.origin,
 
- 
+        destination: selectedShipment.destination,
+
+        travelMode:
+          window.google.maps.TravelMode.DRIVING,
+
+      },
+
+      (result, status) => {
+
+        if (status === "OK") {
+
+          setDirections(result);
+
+        }
+
+      }
+
+    );
+
+  }, [selectedShipment]);
+
   
-
-
-
-  // Reset page when filters change
-
-  React.useEffect(() => {
-    loadShipments();
+  const filteredShipments = useMemo(() => {
+    return filterShipments(
+      shipments,
+      statusFilter,
+      searchTerm
+    );
   }, [statusFilter, searchTerm]);
 
-  // ============= Risk score helper (AI-ish 😎) =============
-  const computeRiskScore = (shipment) => {
-    let base = 10;
-
-    if (shipment.status === "Delayed") base += 60;
-    if (shipment.status === "In Transit") base += 30;
-    if (shipment.status === "Delivered") base -= 20;
-
-    if (shipment.predictedDelay) base += 25;
-
-    // slight randomization so it looks “alive”
-    base += Math.floor(Math.random() * 10) - 5; // -5 to +4
-
-    return Math.max(0, Math.min(100, base));
-  };
-
-  // ============= Filter + sort + paginate =============
-
-  const filteredShipments = filterShipments(
-    shipments,
-    statusFilter,
-    searchTerm
-  );
-
-  const sortedShipments = React.useMemo(() => {
-    const withRisk = filteredShipments.map((s) => ({
-      ...s,
-      _riskScore: computeRiskScore(s),
-    }));
-
-    const sorted = [...withRisk].sort((a, b) => {
-      let valA, valB;
-
-      switch (sortBy) {
-        case "origin":
-          valA = a.origin.toLowerCase();
-          valB = b.origin.toLowerCase();
-          break;
-        case "destination":
-          valA = a.destination.toLowerCase();
-          valB = b.destination.toLowerCase();
-          break;
-        case "status":
-          valA = a.status.toLowerCase();
-          valB = b.status.toLowerCase();
-          break;
-        case "risk":
-          valA = a._riskScore;
-          valB = b._riskScore;
-          break;
-        case "id":
-        default:
-          valA = a.id.toLowerCase();
-          valB = b.id.toLowerCase();
-      }
-
-      if (valA < valB) return sortDirection === "asc" ? -1 : 1;
-      if (valA > valB) return sortDirection === "asc" ? 1 : -1;
-      return 0;
-    });
-
-    return sorted;
-  }, [filteredShipments, sortBy, sortDirection]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedShipments.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-
-  const pagedShipments = sortedShipments.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
-
-  // ============= Sorting UI handler =============
-  const handleSort = (columnKey) => {
-    if (sortBy === columnKey) {
-      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(columnKey);
-      setSortDirection("asc");
-    }
-  };
-
-  const renderSortIcon = (columnKey) => {
-    if (sortBy !== columnKey) return <span className="ml-1 text-gray-300">↕</span>;
-    return (
-      <span className="ml-1 text-gray-400">
-        {sortDirection === "asc" ? "↑" : "↓"}
-      </span>
-    );
-  };
-
-  // ============= Export CSV =============
-  const handleExportCsv = () => {
-    const headers = [
-      "Shipment ID",
-      "Origin",
-      "Destination",
-      "Status",
-      "Predicted Delay",
-      "Risk Score",
-    ];
-
-    const rows = sortedShipments.map((s) => [
-      s.id,
-      s.origin,
-      s.destination,
-      s.status,
-      s.predictedDelay ? "Yes" : "No",
-      computeRiskScore(s),
-    ]);
-
-    const csvContent =
-      [headers, ...rows]
-        .map((row) =>
-          row
-            .map((field) => `"${String(field).replace(/"/g, '""')}"`)
-            .join(",")
-        )
-        .join("\n");
-
-    const blob = new Blob([csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "caldera_shipments.csv";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  // ============= Modal close =============
-  const closeModal = () => setSelectedShipment(null);
-
+  
   return (
-    <div className="p-6 space-y-6">
-      {/* ===== Top Bar: Filters + Export ===== */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-6">
+
+      {/* ================= Header ================= */}
+
+      <div>
+
+
+        <br></br>
+        <p className="text-sm text-cal-muted mt-1 max-w-xl">
+          Track live shipments, monitor routes and predict delays.
+        </p>
+
+      </div>
+
+      {/* ================= Filters ================= */}
+
+      <div className="flex flex-col lg:flex-row lg:justify-between gap-4">
+
         <div className="flex-1">
+
           <ShipmentFilters
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
           />
+
         </div>
 
         <button
-          onClick={handleExportCsv}
-          className="self-start md:self-auto px-4 py-2 bg-cal-primary text-white rounded-lg text-sm hover:bg-cal-primary-deep transition"
+          className="px-5 py-2 bg-cal-primary text-white rounded-xl hover:bg-cal-primary-deep transition"
         >
-          ⬇ Export CSV
+          Export CSV
         </button>
+
       </div>
 
-      {/* ===== Table ===== */}
-      <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-        <table className="w-full text-sm text-gray-700">
+
+      {/* ================= Shipment Table ================= */}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+        <table className="w-full text-sm">
+
           <thead className="bg-cal-primary-soft text-gray-800">
+
             <tr>
-              <th
-                className="px-6 py-3 text-left font-semibold cursor-pointer select-none"
-                onClick={() => handleSort("id")}
-              >
-                Shipment ID {renderSortIcon("id")}
+
+              <th className="px-6 py-3 text-left font-semibold">
+                Shipment
               </th>
-              <th
-                className="px-6 py-3 text-left font-semibold cursor-pointer select-none"
-                onClick={() => handleSort("origin")}
-              >
-                Origin {renderSortIcon("origin")}
+
+              <th className="px-6 py-3 text-left font-semibold">
+                Vehicle
               </th>
-              <th
-                className="px-6 py-3 text-left font-semibold cursor-pointer select-none"
-                onClick={() => handleSort("destination")}
-              >
-                Destination {renderSortIcon("destination")}
+
+              <th className="px-6 py-3 text-left font-semibold">
+                Destination
               </th>
-              <th
-                className="px-6 py-3 text-left font-semibold cursor-pointer select-none"
-                onClick={() => handleSort("status")}
-              >
-                Status {renderSortIcon("status")}
+
+              <th className="px-6 py-3 text-left font-semibold">
+                ETA
               </th>
-              <th
-                className="px-6 py-3 text-left font-semibold cursor-pointer select-none"
-                onClick={() => handleSort("risk")}
-              >
-                Risk Score {renderSortIcon("risk")}
+
+              <th className="px-6 py-3 text-left font-semibold">
+                Status
               </th>
+
+              <th className="px-6 py-3 text-left font-semibold">
+                Risk
+              </th>
+
             </tr>
+
           </thead>
 
           <tbody>
-            {pagedShipments.map((s, idx) => {
-              const risk = s._riskScore ?? computeRiskScore(s);
 
-              let riskColor = "bg-green-100 text-green-700";
-              if (risk >= 70) riskColor = "bg-red-100 text-red-700";
-              else if (risk >= 40) riskColor = "bg-yellow-100 text-yellow-700";
+            {filteredShipments.map((shipment) => (
 
-              return (
-                <tr
-                  key={s.id}
-                  className={`transition border-b last:border-none cursor-pointer
-                    ${idx % 2 === 0 ? "bg-white" : "bg-cal-primary-soft/40"}
-                    hover:bg-cal-primary-soft/80
-                  `}
-                  onClick={() => setSelectedShipment(s)}
-                >
-                  {/* Shipment ID + Predicted Delay */}
-                  <td className="px-6 py-4 font-medium flex items-center gap-2">
-                    {s.id}
-                    {s.predictedDelay && (
-                      <span
-                        className="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Predicted Delay
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Origin */}
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">📦</span>
-                      {s.origin}
-                    </div>
-                  </td>
-
-                  {/* Destination */}
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">📍</span>
-                      {s.destination}
-                    </div>
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-6 py-4">
-                    <span
-                      className={`px-3 py-1 text-xs font-semibold rounded-full
-                      ${
-                        s.status === "Delivered"
-                          ? "bg-green-100 text-green-700"
-                          : s.status === "Delayed"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-blue-100 text-blue-700"
-                      }
-                    `}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {s.status}
-                    </span>
-                  </td>
-
-                  {/* Risk score */}
-                  <td className="px-6 py-4">
-                    <span
-                      className={`px-3 py-1 text-xs font-semibold rounded-full ${riskColor}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {risk} / 100
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-
-            {pagedShipments.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-6 py-6 text-center text-gray-400">
-                  No shipments match your filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ===== Pagination ===== */}
-      <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-        <span>
-          Showing{" "}
-          {sortedShipments.length === 0
-            ? 0
-            : (currentPage - 1) * PAGE_SIZE + 1}{" "}
-          –{" "}
-          {Math.min(currentPage * PAGE_SIZE, sortedShipments.length)} of{" "}
-          {sortedShipments.length} shipments
-        </span>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="px-2 py-1 border rounded-md disabled:opacity-40"
-          >
-            ◀
-          </button>
-          <span>
-            Page {currentPage} of {totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="px-2 py-1 border rounded-md disabled:opacity-40"
-          >
-            ▶
-          </button>
-        </div>
-      </div>
-
-      {/* ===== Shipment Detail Modal ===== */}
-      {selectedShipment && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-lg w-11/12 max-w-xl relative p-6">
-            <button
-              onClick={closeModal}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-
-            <h3 className="text-lg font-semibold text-cal-text mb-1">
-              Shipment {selectedShipment.id}
-            </h3>
-            <p className="text-sm text-cal-muted mb-4">
-              {selectedShipment.origin} → {selectedShipment.destination}
-            </p>
-
-            {/* Status + Risk */}
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              <span
-                className={`px-3 py-1 text-xs font-semibold rounded-full
-                ${
-                  selectedShipment.status === "Delivered"
-                    ? "bg-green-100 text-green-700"
-                    : selectedShipment.status === "Delayed"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-blue-100 text-blue-700"
-                }
-              `}
+              <tr
+                key={shipment.id}
+                onClick={() => setSelectedShipment(shipment)}
+                className={`border-t cursor-pointer transition hover:bg-gray-50 ${
+                  selectedShipment?.id === shipment.id
+                    ? "bg-cal-primary-soft"
+                    : ""
+                }`}
               >
-                {selectedShipment.status}
-              </span>
 
-              {selectedShipment.predictedDelay && (
-                <span className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                  Predicted Delay
-                </span>
-              )}
+                <td className="px-6 py-4 font-medium">
 
-              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
-                Risk: {computeRiskScore(selectedShipment)} / 100
-              </span>
-            </div>
+                  {shipment.id}
 
-            {/* Map preview */}
-            <div className="mb-4">
-              <p className="text-xs font-medium text-cal-muted mb-1">
-                Live location preview
-              </p>
-              <div className="w-full h-48 rounded-xl overflow-hidden border border-cal-border">
-                {loadError && (
-                  <div className="w-full h-full flex items-center justify-center text-red-500 text-xs">
-                    Error loading map
-                  </div>
-                )}
-                {!loadError && !isLoaded && (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                    Loading map...
-                  </div>
-                )}
-                {isLoaded && selectedShipment.lat && selectedShipment.lng && (
-                  <GoogleMap
-                    mapContainerStyle={{ width: "100%", height: "100%" }}
-                    center={{
-                      lat: selectedShipment.lat,
-                      lng: selectedShipment.lng,
-                    }}
-                    zoom={6}
+                </td>
+
+                <td className="px-6 py-4">
+
+                  {shipment.vehicle}
+
+                </td>
+
+                <td className="px-6 py-4">
+
+                  {shipment.destination}
+
+                </td>
+
+                <td className="px-6 py-4">
+
+                  {shipment.eta}
+
+                </td>
+
+                <td className="px-6 py-4">
+
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      shipment.status === "Delivered"
+                        ? "bg-green-100 text-green-700"
+                        : shipment.status === "In Transit"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-orange-100 text-orange-700"
+                    }`}
                   >
-                    <Marker
-                      position={{
-                        lat: selectedShipment.lat,
-                        lng: selectedShipment.lng,
-                      }}
-                      title={selectedShipment.id}
-                    />
-                  </GoogleMap>
-                )}
-                {isLoaded &&
-                  (!selectedShipment.lat || !selectedShipment.lng) && (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                      No live coordinates available for this shipment
-                    </div>
-                  )}
+
+                    {shipment.status}
+
+                  </span>
+
+                </td>
+
+                <td className="px-6 py-4">
+
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      shipment.risk === "Low"
+                        ? "bg-green-100 text-green-700"
+                        : shipment.risk === "Medium"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+
+                    {shipment.risk}
+
+                  </span>
+
+                </td>
+
+              </tr>
+
+            ))}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+      {/* ================= Operational Summary ================= */}
+
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="glass-card p-4">
+          <p className="text-xs text-cal-muted uppercase tracking-wide">Active Shipments</p>
+          <p className="mt-2 text-2xl font-heading text-cal-text">24</p>
+
+        </div>
+
+        <div className="glass-card p-4">
+          <p className="text-xs text-cal-muted uppercase tracking-wide">Delayed</p>
+          <p className="mt-2 text-2xl font-heading text-red-600">3</p>
+
+        </div>
+
+        <div className="glass-card p-4">
+          <p className="text-xs text-cal-muted uppercase tracking-wide">Average ETA</p>
+          <p className="mt-2 text-2xl font-heading text-cal-primary-deep">2.8 hrs</p>
+
+        </div>
+
+        <div className="glass-card p-4">
+          <p className="text-xs text-cal-muted uppercase tracking-wide">High Risk</p>
+          <p className="mt-2 text-2xl font-heading text-amber-600">
+            2
+          </p>
+
+        </div>
+        
+      </section>
+
+
+      {/* ================= Shipment Details + Map ================= */}
+
+      <div className="grid lg:grid-cols-3 gap-6">
+
+
+
+
+        {/* ================= LEFT PANEL ================= */}
+
+        {selectedShipment && (
+
+          <div>
+
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 h-full">
+
+              <h2 className="text-xl font-semibold mb-6">
+                {selectedShipment.id}
+              </h2>
+
+              <div className="grid grid-cols-2 gap-5 text-sm">
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    Vehicle
+                  </p>
+
+                  <p className="font-medium mt-1">
+                    {selectedShipment.vehicle}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    Status
+                  </p>
+
+                  <p className="font-medium mt-1">
+                    {selectedShipment.status}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    Origin
+                  </p>
+
+                  <p className="font-medium mt-1">
+                    {selectedShipment.origin}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    Destination
+                  </p>
+
+                  <p className="font-medium mt-1">
+                    {selectedShipment.destination}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    ETA
+                  </p>
+
+                  <p className="font-medium mt-1">
+                    {selectedShipment.eta}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    Current Speed
+                  </p>
+
+                  <p className="font-medium mt-1">
+                    {selectedShipment.speed}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-cal-muted">
+                    Delay Prediction
+                  </p>
+
+                  <p
+                    className={`font-medium mt-1 ${
+                      selectedShipment.predictedDelay
+                        ? "text-red-600"
+                        : "text-green-600"
+                    }`}
+                  >
+                    {selectedShipment.predictedDelay
+                      ? "High Risk"
+                      : "Low Risk"}
+                  </p>
+                </div>
+
               </div>
+
+              {/* AI Insight */}
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+
+                <h3 className="font-semibold text-blue-700 mb-2">
+                  AI Insight
+                </h3>
+
+                <p className="text-sm text-gray-700">
+
+                  {selectedShipment.predictedDelay
+                    ? "Heavy traffic expected ahead. Suggested reroute via alternate highway."
+                    : "Shipment is progressing normally. No operational issues detected."}
+
+                </p>
+
+              </div>
+
+              {/* Timeline */}
+
+              <div className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+
+                <h3 className="text-lg font-semibold text-cal-heading mb-5">
+                  Shipment Timeline
+                </h3>
+
+                <div className="relative ml-3">
+
+                  {/* Vertical Line */}
+                  <div className="absolute left-2 top-2 bottom-2 w-px bg-gray-200"></div>
+
+                  {/* Step 1 */}
+                  <div className="relative flex items-start mb-6">
+
+                    <div className="w-4 h-4 rounded-full bg-green-500 z-10"></div>
+
+                    <div className="ml-5">
+
+                      <p className="font-medium text-gray-800">
+                        Pickup Complete
+                      </p>
+
+                      <p className="text-sm text-gray-500">
+                        Today • 08:15
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  {/* Step 2 */}
+
+                  <div className="relative flex items-start mb-6">
+
+                    <div className="w-4 h-4 rounded-full bg-green-500 z-10"></div>
+
+                    <div className="ml-5">
+
+                      <p className="font-medium text-gray-800">
+                        Left Origin Hub
+                      </p>
+
+                      <p className="text-sm text-gray-500">
+                        Today • 09:40
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  {/* Step 3 */}
+
+                  <div className="relative flex items-start mb-6">
+
+                    <div className="w-4 h-4 rounded-full bg-orange-500 z-10"></div>
+
+                    <div className="ml-5">
+
+                      <p className="font-medium text-gray-800">
+                        Currently In Transit
+                      </p>
+
+                      <p className="text-sm text-orange-600">
+                        In Progress
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  {/* Step 4 */}
+
+                  <div className="relative flex items-start">
+
+                    <div className="w-4 h-4 rounded-full bg-gray-300 z-10"></div>
+
+                    <div className="ml-5">
+
+                      <p className="font-medium text-gray-400">
+                        Destination Delivery
+                      </p>
+
+                      <p className="text-sm text-gray-400">
+                        Estimated • 4:35 PM
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>              
+
             </div>
 
-            {/* Footer info */}
-            <div className="text-xs text-cal-muted space-y-1">
-              <p>
-                <span className="font-medium text-cal-text">Origin:</span>{" "}
-                {selectedShipment.origin}
-              </p>
-              <p>
-                <span className="font-medium text-cal-text">Destination:</span>{" "}
-                {selectedShipment.destination}
-              </p>
-              {selectedShipment.eta && (
-                <p>
-                  <span className="font-medium text-cal-text">ETA:</span>{" "}
-                  {selectedShipment.eta}
-                </p>
+          </div>
+
+        )}
+
+        {/* ================= MAP ================= */}
+
+        <div
+          className={`transition-all duration-300 ${
+            selectedShipment
+              ? "lg:col-span-2"
+              : "lg:col-span-3"
+          }`}
+        >
+         
+
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+
+            <div className="px-6 py-4 border-b">
+
+              <h2 className="text-xl font-semibold">
+                Live Fleet Map
+              </h2>
+
+            </div>
+
+            <div style={{ height: "500px" }}>
+
+              {isLoaded && (
+                <GoogleMap
+                  mapContainerStyle={{
+                    width: "100%",
+                    height: "100%",
+                  }}
+                  center={{ lat: 13.5, lng: 78.5 }}
+                  zoom={6}
+                  options={{
+                    streetViewControl: false,
+                    mapTypeControl: false,
+                    fullscreenControl: false,
+                  }}
+                >
+                  {/* Vehicle Markers */}
+
+
+                  {filteredShipments.map((shipment) => (
+                    <Marker
+                      key={shipment.id}
+                      position={{
+                        lat: shipment.lat,
+                        lng: shipment.lng,
+                      }}
+                      title={shipment.id}
+                      icon={{
+                        url:
+                          shipment.status === "Delivered"
+                            ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
+                            : shipment.status === "Delayed"
+                            ? "https://maps.google.com/mapfiles/ms/icons/red-dot.png"
+                            : "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+
+                        scaledSize: new window.google.maps.Size(40, 40),
+                      }}
+                    />
+                  ))}
+
+
+
+                  {/* Highlight Selected Route */}
+
+                  {selectedShipment && (
+                    <>
+
+                      {directions && (
+
+                        <DirectionsRenderer
+
+                          directions={directions}
+
+                          options={{
+                            
+                            polylineOptions: {
+
+                              strokeColor: "#2563EB",
+
+                              strokeWeight: 5,
+
+                            },
+
+                          }}
+
+                        />
+
+                      )}
+
+                    </>
+                  )}
+                </GoogleMap>
               )}
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
 export default ShipmentsPage;
-

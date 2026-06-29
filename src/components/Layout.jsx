@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import caLogo from "../assets/ca.png";
+import calLogo from "../assets/cal.jpeg";
 
 function Layout({ children }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -8,10 +8,11 @@ function Layout({ children }) {
 
   const routeToTitle = {
     "/dashboard": "Dashboard",
-    "/shipments": "Shipments",
-    "/routes": "Routes",
+    "/shipments": "Shipment Operations",
+    "/fleet": "Fleet",
+    "/orders": "Orders",
     "/alerts": "Alerts",
-    "/partners": "3PL Partners",
+    "/partners": "3PL Network",
   };
 
   const pageTitle = routeToTitle[location.pathname] || "";
@@ -26,7 +27,7 @@ function Layout({ children }) {
           <div>
             <div className="flex items-center gap-3 mb-6">
               <img
-                src={caLogo}
+                src={calLogo}
                 alt="Caldera Logo"
                 className="h-10 w-10 object-contain rounded-xl"
               />
@@ -35,14 +36,21 @@ function Layout({ children }) {
                   Caldera
                 </div>
                 <div className="text-lg font-heading font-semibold text-cal-heading">
-                  Eco Logistics
+                 Intelligent Logistics
                 </div>
               </div>
             </div>
 
             {/* Nav links */}
             <nav className="space-y-1 text-sm">
-              {["dashboard", "shipments", "routes", "alerts", "partners"].map((link) => (
+              {[
+                "dashboard",
+                "shipments",
+                "fleet",
+                "orders",
+                "alerts",
+                "partners",
+              ].map((link) => (
                 <NavLink
                   key={link}
                   to={`/${link}`}
@@ -62,9 +70,9 @@ function Layout({ children }) {
 
           {/* Footer */}
           <div className="text-[11px] text-cal-muted">
-            🌿 Caldera · Greener Deliveries
+            🌿 Caldera · The Logistics Command Center
             <br />
-            © 2025
+             2025
           </div>
         </div>
       </aside>

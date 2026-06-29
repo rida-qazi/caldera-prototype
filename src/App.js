@@ -8,9 +8,10 @@ import {
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
 import ShipmentsPage from "./pages/ShipmentsPage";
-import RoutesPage from "./pages/RoutesPage";
 import AlertsPage from "./pages/AlertsPage";
 import PartnersPage from "./pages/PartnersPage";
+import FleetPage from "./pages/FleetPage";
+import OrdersPage from "./pages/OrdersPage";
 
 export default function App() {
   const [alerts, setAlerts] = React.useState([]);
@@ -56,7 +57,12 @@ export default function App() {
                   element={<DashboardPage alerts={alerts} />}
                 />
                 <Route path="/shipments" element={<ShipmentsPage />} />
-                <Route path="/routes" element={<RoutesPage />} />
+                <Route path="/fleet" element={<FleetPage />} />
+                <Route path="/orders" element={<OrdersPage />} />
+                <Route
+                  path="/routes"
+                  element={<Navigate to="/shipments" replace />}
+                />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/partners" element={<PartnersPage />} />
               </Routes>
