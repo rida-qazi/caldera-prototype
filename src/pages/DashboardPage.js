@@ -31,7 +31,7 @@ function DashboardPage({ alerts }) {
 
   const [statusFilter, setStatusFilter] = React.useState("All");
   const [searchTerm, setSearchTerm] = React.useState("");
-  const [showTraffic, setShowTraffic] = React.useState(false);
+ 
 
   const mapRef = React.useRef(null);
   const { isLoaded, loadError } = useGoogleMaps();
@@ -127,20 +127,7 @@ function DashboardPage({ alerts }) {
     }
   };
 
-  const filteredShipments = vehicles.filter((s) => {
-    const matchesStatus =
-      statusFilter === "All" ? true : s.status === statusFilter;
 
-    const q = searchTerm.trim().toLowerCase();
-
-    const matchesSearch =
-      q === "" ||
-      s.id.toLowerCase().includes(q) ||
-      s.origin.toLowerCase().includes(q) ||
-      s.destination.toLowerCase().includes(q);
-
-    return matchesStatus && matchesSearch;
-  });
 
 
 
@@ -300,20 +287,12 @@ const delayTimeline = [
 
 
   const delayedCount = shipments.filter((s) => s.status === "Delayed").length;
-  const utilizationRate = shipments.length
-    ? Math.round(((shipments.length - delayedCount) / shipments.length) * 100)
-    : 0;
 
-  const mapContainerStyle = { width: "100%", height: "300px" };
-  const defaultCenter = { lat: 20.5937, lng: 78.9629 };
 
-  const getMarkerIcon = (status) => {
-    if (status === "Delayed")
-      return "http://maps.google.com/mapfiles/ms/icons/red-dot.png";
-    if (status === "Delivered")
-      return "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
-    return "http://maps.google.com/mapfiles/ms/icons/blue-dot.png";
-  };
+
+
+
+
 
 
 
