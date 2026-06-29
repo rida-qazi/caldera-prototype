@@ -5,11 +5,9 @@ import {
   Polyline,
   InfoWindow,
   DirectionsRenderer,
-  TrafficLayer,
 } from "@react-google-maps/api";
 import { useInView } from "react-intersection-observer";
 import ShipmentFilters from "../components/ShipmentFilters";
-import { supabase } from "../supabaseClient";
 import DeliveryPieChart from "../components/DeliveryPieChart";
 import DelayLineChart from "../components/DelayLineChart";
 import { useGoogleMaps } from "../components/GoogleMapsLoader";
@@ -17,7 +15,7 @@ import { useGoogleMaps } from "../components/GoogleMapsLoader";
 function DashboardPage({ alerts }) {
 
   const [shipments, setShipments] = React.useState([]);  
-  const [analytics, setAnalytics] = React.useState(null);
+
 
 
   
@@ -134,120 +132,7 @@ function DashboardPage({ alerts }) {
 
   // ✅ Load shipments
 
-  React.useEffect(() => {
-    async function load() {
-      const { data: shipmentRows, error } = await supabase
-        .from("shipments")
-        .select("*");
-
-      if (error) {
-        console.error("Supabase error:", error);
-        return;
-      }
-
-      // --- STATUS MAPPING ---
-      const mapStatus = (s) => {
-        if (s.current_status) return s.current_status;
-        if (s.on_hold) return "On Hold";
-        if (s.movement_type === 2) return "Delivered";
-        if (s.movement_type === 3) return "Delayed";
-        return "In Transit";
-      };
-
-      // --- NORMALIZED SHIPMENTS FOR UI ---
-      const shipmentsWithCoords = shipmentRows.map((s) => ({
-        ...s,
-        id: String(s.id),
-
-        // Real origin
-        origin:
-          s.origin_city
-            ? `${s.origin_city}, ${s.origin_state} (${s.origin_pincode})`
-            : "Unknown",
-
-        // Real destination
-        destination:
-          s.dest_city
-            ? `${s.dest_city}, ${s.dest_state} (${s.dest_pincode})`
-            : "Unknown",
-
-        status: mapStatus(s),
-
-        // Temporary map coordinates (simulation)
-        lat: 20.5 + Math.random(),
-        lng: 78.9 + Math.random(),
-
-        predictedDelay: Math.random() < 0.25
-      }));
-
-      setShipments(shipmentsWithCoords);
-
-      // --- DAILY DELAY CALCULATION ---
-      let daily = {};
-      shipmentRows.forEach((s) => {
-        if (s.actual_delivery && s.eta) {
-          const eta = new Date(s.eta);
-          const actual = new Date(s.actual_delivery);
-
-          const delayHours = (actual - eta) / 3600000;
-          const day = actual.toISOString().split("T")[0];
-
-          if (!daily[day]) daily[day] = { totalDelay: 0, count: 0 };
-
-          daily[day].totalDelay += delayHours;
-          daily[day].count += 1;
-        }
-      });
-
-      const delayTimeline = Object.keys(daily).map((day) => ({
-        date: day,
-        avgDelay: daily[day].totalDelay / daily[day].count
-      }));
-
-      delayTimeline.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-      // --- KPI ANALYTICS ---
-      const total = shipmentRows.length;
-
-      const onHold = shipmentsWithCoords.filter(
-        (s) => s.status === "On Hold"
-      ).length;
-
-      const delayed = shipmentsWithCoords.filter(
-        (s) => s.status === "Delayed"
-      ).length;
-
-      const onTime = shipmentRows.filter(
-        (s) =>
-          s.actual_delivery &&
-          s.eta &&
-          new Date(s.actual_delivery) <= new Date(s.eta)
-      ).length;
-
-      const avgDelayHoursArr = shipmentRows
-        .filter((s) => s.actual_delivery && s.eta)
-        .map(
-          (s) => (new Date(s.actual_delivery) - new Date(s.eta)) / 3600000
-        );
-
-      const avgDelayHours =
-        avgDelayHoursArr.length
-          ? avgDelayHoursArr.reduce((a, b) => a + b, 0) /
-            avgDelayHoursArr.length
-          : 0;
-
-      setAnalytics({
-        totalShipments: total,
-        onHold,
-        delayed,
-        onTime,
-        avgDelayHours,
-        delayTimeline
-      });
-    }
-
-    load();
-  }, []);
+  
 
   const pieData = {
   onTime: 18,
@@ -286,7 +171,7 @@ const delayTimeline = [
 ];
 
 
-  const delayedCount = shipments.filter((s) => s.status === "Delayed").length;
+
 
 
 
@@ -317,7 +202,7 @@ const delayTimeline = [
         <div className="glass-card px-4 py-3 text-xs text-cal-muted flex flex-col md:text-right">
           <span className="uppercase tracking-wide">Today&apos;s snapshot</span>
           <span className="text-sm mt-1">
-            {shipments.length ? `${analytics ? analytics.totalShipments : "..."} active shipments` : "Loading shipments..."}
+            {shipments.length ? "21 active shipments" : "Loading shipments..."}
           </span>
         </div>
       </section>
